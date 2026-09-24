@@ -1,0 +1,11 @@
+﻿id,jd_title,target_skill,file_path,context_header,code_snippet,label,notes
+PL_001,Java Fresher Backend,Spring Data JPA,src/main/java/com/demo/repository/UserRepository.java,Class: UserRepository | Extends: JpaRepository,"@Repository
+public interface UserRepository extends JpaRepository<User, Long> {
+    @Query(""SELECT u FROM User u WHERE u.email = :email"")
+    Optional<User> findByEmail(@Param(""email"") String email);
+}",0.0,
+PL_002,Frontend React Fresher,Redux Toolkit,src/store/index.ts,File: store/index.ts,"import { configureStore } from '@reduxjs/toolkit';
+
+export const store = configureStore({
+  reducer: {},
+});",1.0,
