@@ -60,30 +60,30 @@ else:
     df.to_csv(target_file, index=False, encoding="utf-8-sig")
 
 # Tự động ánh xạ tên cột thông minh (Hỗ trợ cả Schema cũ Pilot và Schema mới 250 cặp)
-col_id = 'pair_id' if 'pair_id' in df.columns else ('id' if 'id' in df.columns else df.columns[0])
-col_title = 'jd_title' if 'jd_title' in df.columns else 'title'
-col_skill = 'jd_mandatory_skills' if 'jd_mandatory_skills' in df.columns else ('target_skill' if 'target_skill' in df.columns else 'skill')
-col_code = 'chunk_content' if 'chunk_content' in df.columns else ('code_snippet' if 'code_snippet' in df.columns else 'code')
-col_file = 'file_path' if 'file_path' in df.columns else 'file'
-col_header = 'context_header' if 'context_header' in df.columns else 'header'
-col_label = 'human_label' if 'human_label' in df.columns else ('label' if 'label' in df.columns else 'human_label')
-col_notes = 'human_note' if 'human_note' in df.columns else ('notes' if 'notes' in df.columns else 'human_note')
+col_name_id = 'pair_id' if 'pair_id' in df.columns else ('id' if 'id' in df.columns else df.columns[0])
+col_name_title = 'jd_title' if 'jd_title' in df.columns else 'title'
+col_name_skill = 'jd_mandatory_skills' if 'jd_mandatory_skills' in df.columns else ('target_skill' if 'target_skill' in df.columns else 'skill')
+col_name_code = 'chunk_content' if 'chunk_content' in df.columns else ('code_snippet' if 'code_snippet' in df.columns else 'code')
+col_name_file = 'file_path' if 'file_path' in df.columns else 'file'
+col_name_header = 'context_header' if 'context_header' in df.columns else 'header'
+col_name_label = 'human_label' if 'human_label' in df.columns else ('label' if 'label' in df.columns else 'human_label')
+col_name_notes = 'human_note' if 'human_note' in df.columns else ('notes' if 'notes' in df.columns else 'human_note')
 
 # Đảm bảo các cột nhãn & ghi chú tồn tại an toàn
-if col_notes not in df.columns:
-    df[col_notes] = ""
+if col_name_notes not in df.columns:
+    df[col_name_notes] = ""
 else:
-    df[col_notes] = df[col_notes].fillna("").astype(str)
+    df[col_name_notes] = df[col_name_notes].fillna("").astype(str)
 
-if col_label not in df.columns:
-    df[col_label] = None
+if col_name_label not in df.columns:
+    df[col_name_label] = None
 else:
-    df[col_label] = df[col_label].astype(object)
+    df[col_name_label] = df[col_name_label].astype(object)
 
 # 3. Quản lý vị trí đang chấm (Index)
 if "current_annotator" not in st.session_state or st.session_state.current_annotator != annotator:
     st.session_state.current_annotator = annotator
-    unlabeled = df[df[col_label].isna()].index
+    unlabeled = df[df[col_name_label].isna()].index
     st.session_state.current_idx = int(unlabeled[0]) if len(unlabeled) > 0 else 0
 
 total = len(df)
@@ -93,7 +93,7 @@ if total == 0:
 
 st.session_state.current_idx = max(0, min(st.session_state.current_idx, total - 1))
 idx = st.session_state.current_idx
-labeled_count = int(df[col_label].notna().sum())
+labeled_count = int(df[col_name_label].notna().sum())
 
 # Thông tin file đang thao tác
 st.sidebar.caption(f"📁 Tệp đang mở: `{Path(target_file).name}`")
@@ -148,9 +148,9 @@ st.sidebar.markdown("""
 """)
 
 # 4. Hiển thị nội dung cần gán nhãn
-item_id = df.at[idx, col_id] if col_id in df.columns else f"INDEX_{idx+1}"
-item_title = df.at[idx, col_title] if col_title in df.columns else "N/A"
-item_skill = df.at[idx, col_skill] if col_skill in df.columns else "N/A"
+item_id = df.at[idx, col_name_id] if col_name_id in df.columns else f"INDEX_{idx+1}"
+item_title = df.at[idx, col_name_title] if col_name_title in df.columns else "N/A"
+item_skill = df.at[idx, col_name_skill] if col_name_skill in df.columns else "N/A"
 item_repo = df.at[idx, 'repo_name'] if 'repo_name' in df.columns else None
 item_level = df.at[idx, 'jd_level'] if 'jd_level' in df.columns else None
 item_domain = df.at[idx, 'jd_domain'] if 'jd_domain' in df.columns else None
@@ -165,14 +165,18 @@ extra_str = (" | " + " | ".join(extra_info)) if extra_info else ""
 
 st.info(f"🎯 **Kỹ năng yêu cầu trong JD:** :red[**{item_skill}**] (Vị trí: *{item_title}*{extra_str})")
 
-col_code, col_action = st.columns([3, 1])
+ui_col_code, ui_col_action = st.columns([3, 1])
 
-with col_code:
-    file_p = df.at[idx, col_file] if col_file in df.columns else "unknown_file"
-    ctx_hdr = df.at[idx, col_header] if col_header in df.columns else ""
+with ui_col_code:
+    file_p = df.at[idx, col_name_file] if col_name_file in df.columns else "unknown_file"
+    ctx_hdr = df.at[idx, col_name_header] if col_name_header in df.columns else ""
     st.caption(f"📁 **File:** `{file_p}` | 📌 **Bối cảnh:** `{ctx_hdr}`")
     lang = "java" if str(file_p).endswith(".java") else "typescript"
-    code_text = str(df.at[idx, col_code]) if col_code in df.columns else "# No code snippet"
+    raw_code = df.at[idx, col_name_code] if col_name_code in df.columns else None
+    if pd.notna(raw_code) and str(raw_code).strip():
+        code_text = str(raw_code)
+    else:
+        code_text = "// Không tìm thấy nội dung mã nguồn"
     st.code(code_text, language=lang, line_numbers=True)
 
     # Mục xem gợi ý AI (Mặc định đóng để đảm bảo nguyên tắc gán nhãn mù độc lập)
@@ -183,10 +187,10 @@ with col_code:
             st.markdown(f"- **Đề xuất của AI:** :blue[**Mức {ai_lbl}**]")
             st.markdown(f"- **Lý do chuyên môn:** *{ai_rs}*")
 
-with col_action:
+with ui_col_action:
     st.write("### ✍️ Đánh giá của bạn:")
     
-    current_label = df.at[idx, col_label]
+    current_label = df.at[idx, col_name_label]
     if pd.notna(current_label):
         try:
             st.success(f"Đã chấm: **Mức {int(float(current_label))}**")
@@ -194,13 +198,13 @@ with col_action:
             st.success(f"Đã chấm: **Mức {current_label}**")
 
     # Ô ghi chú
-    current_note = str(df.at[idx, col_notes]) if pd.notna(df.at[idx, col_notes]) else ""
+    current_note = str(df.at[idx, col_name_notes]) if pd.notna(df.at[idx, col_name_notes]) else ""
     note_input = st.text_input("Ghi chú (nếu phân vân):", value=current_note, key=f"note_{annotator}_{idx}")
 
     # Hàm lưu nhãn và sang câu kế tiếp
     def save_and_next(val):
-        df.at[idx, col_label] = val
-        df.at[idx, col_notes] = note_input
+        df.at[idx, col_name_label] = val
+        df.at[idx, col_name_notes] = note_input
         df.to_csv(target_file, index=False, encoding="utf-8-sig")
         if project_file_path.exists() and str(project_file_path) != str(target_file):
             try:
@@ -221,10 +225,10 @@ with col_action:
         save_and_next(2)
 
     st.write("---")
-    col_prev, col_next = st.columns(2)
-    with col_prev:
+    ui_col_prev, ui_col_next = st.columns(2)
+    with ui_col_prev:
         if st.button("⬅️ Câu trước") and st.session_state.current_idx > 0:
-            df.at[idx, col_notes] = note_input
+            df.at[idx, col_name_notes] = note_input
             df.to_csv(target_file, index=False, encoding="utf-8-sig")
             if project_file_path.exists() and str(project_file_path) != str(target_file):
                 try:
@@ -233,9 +237,9 @@ with col_action:
                     pass
             st.session_state.current_idx -= 1
             st.rerun()
-    with col_next:
+    with ui_col_next:
         if st.button("Câu sau ➡️") and st.session_state.current_idx < total - 1:
-            df.at[idx, col_notes] = note_input
+            df.at[idx, col_name_notes] = note_input
             df.to_csv(target_file, index=False, encoding="utf-8-sig")
             if project_file_path.exists() and str(project_file_path) != str(target_file):
                 try:
