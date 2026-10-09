@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 
 # Cấu hình giao diện rộng rãi
-st.set_page_config(page_title="Công cụ Gán nhãn - Đồ án 1 UIT", layout="wide", page_icon="🏷️")
+st.set_page_config(page_title="Công cụ Gán nhãn - JD Evidence Matching (IEEE SANER 2027)", layout="wide", page_icon="🏷️")
 
 BASE_DIR = Path(__file__).resolve().parent
 PROJECT_DIR = Path("D:/jd-evidence-matching")
@@ -140,11 +140,12 @@ with st.sidebar.expander("📤 Nạp file dữ liệu khác (.csv / .xlsx)"):
 
 # Tóm tắt Guideline ngay góc trái để tiện tra cứu
 st.sidebar.markdown("---")
-st.sidebar.markdown("### 📖 Tóm tắt Guideline:")
+st.sidebar.markdown("### 📖 Hướng dẫn Chấm điểm (SANER 2027):")
 st.sidebar.markdown("""
-- **Mức 0**: Không liên quan, code boilerplate/tự sinh, khác ngôn ngữ/nghiệp vụ.
-- **Mức 1**: Gián tiếp (chỉ khai báo config, dependency, README, entity/interface đơn giản).
-- **Mức 2**: Trực tiếp (có logic xử lý nghiệp vụ tự viết, REST API, Service, Custom Hook).
+- **Mức 0 (Không liên quan / Rác)**: Khác công nghệ, import, class/interface rỗng, UI toast tĩnh, thiếu ngữ cảnh.
+- **Mức 1 (Gián tiếp / Ngoại vi)**: Cấu hình cơ bản (Swagger), CRUD chuyển tiếp không có logic, hoặc đoạn code bị cắt dở mất logic cốt lõi.
+- **Mức 2 (Trực tiếp / Mạnh mẽ)**: Bằng chứng cốt lõi (Spring Security JWT, custom React hook, REST API có auth & validation).  
+  *Lưu ý:* Đoạn code bị cắt dở ở cuối nhưng phần nhìn thấy đã đủ bằng chứng thì **vẫn đạt Mức 2**.
 """)
 
 # 4. Hiển thị nội dung cần gán nhãn
