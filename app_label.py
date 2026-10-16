@@ -5,7 +5,7 @@ import os
 import re
 from pathlib import Path
 
-# Cấu hình giao diện Streamlit rộng rãi
+# Cấu hình giao diện Streamlit
 st.set_page_config(
     page_title="Công cụ Gán nhãn - JD Evidence Matching (IEEE SANER 2027)",
     layout="wide",
@@ -16,36 +16,54 @@ BASE_DIR = Path(__file__).resolve().parent
 PROJECT_DIR = Path("D:/jd-evidence-matching")
 DATASET_DIR = PROJECT_DIR / "dataset"
 
-# 1. Chọn người gán nhãn
+# 1. Hỗ trợ query params để mở link riêng cho từng người
+# Ví dụ: link?user=an hoặc link?user=huy
+default_annotator_idx = 0
+try:
+    q_user = str(st.query_params.get("user", "") or st.query_params.get("annotator", "")).lower().strip()
+    if q_user in ["an", "thuan", "thu_an", "2", "annotator2"]:
+        default_annotator_idx = 1
+    elif q_user in ["huy", "quanghuy", "quang_huy", "1", "annotator1"]:
+        default_annotator_idx = 0
+except Exception:
+    pass
+
+# 2. Chọn người gán nhãn
 st.sidebar.title("👤 Người thực hiện")
+annotator_options = ["Quang Huy (Annotator 1)", "Thu An (Annotator 2)"]
+
+if "annotator_selection" not in st.session_state:
+    st.session_state.annotator_selection = annotator_options[default_annotator_idx]
+
 annotator_choice = st.sidebar.selectbox(
     "Bạn là ai?",
-    ["Quang Huy (Annotator 1)", "Thu An (Annotator 2)"]
+    annotator_options,
+    key="annotator_selection"
 )
+
 is_annotator_1 = ("Quang Huy" in annotator_choice or "Annotator 1" in annotator_choice)
 annotator_name = "Quang Huy" if is_annotator_1 else "Thu An"
+user_key = "huy" if is_annotator_1 else "an"
 score_col = "annotator1_score" if is_annotator_1 else "annotator2_score"
 
-# Xác định file mục tiêu (Ưu tiên annotator1_blank.csv / annotator2_blank.csv hoặc ground_truth_huy_raw.csv / ground_truth_an_raw.csv)
-candidate_files = []
-if is_annotator_1:
-    candidate_files = ["annotator1_blank.csv", "ground_truth_huy_raw.csv"]
-else:
-    candidate_files = ["annotator2_blank.csv", "ground_truth_an_raw.csv"]
+# File tương ứng với từng người
+primary_file = "annotator1_blank.csv" if is_annotator_1 else "annotator2_blank.csv"
+backup_file = "ground_truth_huy_raw.csv" if is_annotator_1 else "ground_truth_an_raw.csv"
 
-target_file = None
-for f in candidate_files:
+# Tìm file nguồn
+file_to_load = None
+for f in [primary_file, backup_file]:
     if (BASE_DIR / f).exists():
-        target_file = str(BASE_DIR / f)
+        file_to_load = BASE_DIR / f
         break
     elif (DATASET_DIR / f).exists():
-        target_file = str(DATASET_DIR / f)
+        file_to_load = DATASET_DIR / f
         break
 
-if not target_file:
-    target_file = str(BASE_DIR / candidate_files[0])
+if not file_to_load:
+    file_to_load = BASE_DIR / primary_file
 
-# Danh sách 10 cột nguyên bản đúng cấu trúc ban đầu
+# Danh sách 10 cột nguyên bản đúng format ban đầu của người dùng
 ORIGINAL_COLUMNS = [
     'pair_id',
     'query_id',
@@ -59,16 +77,15 @@ ORIGINAL_COLUMNS = [
     'notes'
 ]
 
-# 2. Đọc dữ liệu
-if not os.path.exists(target_file):
-    st.error(f"⚠️ Không tìm thấy file dữ liệu `{Path(target_file).name}`!")
+# 3. Đọc dữ liệu
+if not os.path.exists(file_to_load):
+    st.error(f"⚠️ Không tìm thấy file dữ liệu cho {annotator_name} (`{Path(file_to_load).name}`)!")
     st.stop()
 
-df = pd.read_csv(target_file, encoding="utf-8-sig")
+df = pd.read_csv(file_to_load, encoding="utf-8-sig")
 
-# Đảm bảo các cột tối thiểu tồn tại
+# Chuẩn hóa cột nhãn & ghi chú cho đúng annotator hiện tại
 if score_col not in df.columns:
-    # Nếu file có annotator1_score mà đang ở mode annotator 2 hoặc ngược lại, copy sang
     alt_score = 'annotator2_score' if is_annotator_1 else 'annotator1_score'
     if alt_score in df.columns:
         df[score_col] = df[alt_score]
@@ -83,8 +100,7 @@ if 'notes' not in df.columns:
     else:
         df['notes'] = ""
 
-# Khắc phục triệt để lỗi LossySetitemError trên Pandas 2.x/3.x:
-# Ép kiểu an toàn ngay khi load
+# Ép kiểu an toàn để tránh triệt để lỗi LossySetitemError trên Pandas mới
 df['notes'] = df['notes'].fillna("").astype(str)
 df[score_col] = df[score_col].astype(object)
 
@@ -98,59 +114,64 @@ if gemini_sug_file.exists():
     except Exception:
         pass
 
-# 3. Quản lý vị trí đang chấm (Index)
+# 4. Quản lý Index & Trạng thái độc lập cho từng annotator
 total = len(df)
 if total == 0:
     st.warning("⚠️ Tập dữ liệu rỗng!")
     st.stop()
 
-if "current_annotator" not in st.session_state or st.session_state.current_annotator != annotator_name:
-    st.session_state.current_annotator = annotator_name
-    unlabeled = df[df[score_col].isna() | (df[score_col] == "")].index
-    st.session_state.current_idx = int(unlabeled[0]) if len(unlabeled) > 0 else 0
+idx_key = f"current_idx_{user_key}"
+jump_key = f"jump_box_{user_key}"
 
-st.session_state.current_idx = max(0, min(st.session_state.current_idx, total - 1))
-idx = st.session_state.current_idx
+# Khởi tạo vị trí câu cho người này (tự động tới câu chưa làm đầu tiên của người này)
+if idx_key not in st.session_state:
+    unlabeled = df[df[score_col].isna() | (df[score_col].astype(str).str.strip() == "")].index
+    st.session_state[idx_key] = int(unlabeled[0]) if len(unlabeled) > 0 else 0
 
-# Đếm số mẫu đã gán nhãn
-labeled_mask = df[score_col].notna() & (df[score_col] != "")
+st.session_state[idx_key] = max(0, min(st.session_state[idx_key], total - 1))
+idx = st.session_state[idx_key]
+
+# Đếm tiến độ của người này
+labeled_mask = df[score_col].notna() & (df[score_col].astype(str).str.strip() != "")
 labeled_count = int(labeled_mask.sum())
 
-# Sidebar: Thông tin & Tiến độ
-st.sidebar.caption(f"📁 Tệp đang mở: `{Path(target_file).name}`")
+# Sidebar: Thông tin file & tiến độ
+st.sidebar.caption(f"📁 Tệp gán nhãn: `{Path(file_to_load).name}`")
+st.sidebar.caption(f"📝 Cột ghi điểm: `{score_col}`")
 st.sidebar.markdown(f"**Tiến độ của {annotator_name}:**")
 st.sidebar.progress(labeled_count / total)
 st.sidebar.write(f"Đã chấm: **{labeled_count} / {total}** mẫu ({(labeled_count/total)*100:.1f}%)")
 
-# Nút nhảy đến câu chưa làm tiếp theo
+# Nút chuyển nhanh đến câu chưa làm tiếp theo của người này
 if st.sidebar.button("⏭️ Nhảy đến câu chưa làm tiếp theo", use_container_width=True):
-    unlabeled = df[df[score_col].isna() | (df[score_col] == "")].index
+    unlabeled = df[df[score_col].isna() | (df[score_col].astype(str).str.strip() == "")].index
     future_unlabeled = [i for i in unlabeled if i > idx]
     if future_unlabeled:
-        st.session_state.current_idx = int(future_unlabeled[0])
+        st.session_state[idx_key] = int(future_unlabeled[0])
     elif len(unlabeled) > 0:
-        st.session_state.current_idx = int(unlabeled[0])
+        st.session_state[idx_key] = int(unlabeled[0])
     else:
-        st.sidebar.success("🎉 Bạn đã hoàn thành tất cả các mẫu!")
+        st.sidebar.success(f"🎉 {annotator_name} đã hoàn thành tất cả các mẫu!")
     st.rerun()
 
-# Ô nhảy nhanh tới số câu cụ thể
-jump_idx = st.sidebar.number_input(
+# Ô nhảy nhanh tới số câu cụ thể (dùng callback an toàn)
+def handle_jump():
+    if jump_key in st.session_state:
+        st.session_state[idx_key] = st.session_state[jump_key] - 1
+
+st.sidebar.number_input(
     "Nhảy tới mẫu số:",
     min_value=1,
     max_value=total,
     value=idx + 1,
     step=1,
-    key="jump_box"
+    key=jump_key,
+    on_change=handle_jump
 )
-if jump_idx - 1 != idx:
-    st.session_state.current_idx = jump_idx - 1
-    st.rerun()
 
-# Hàm xuất dataframe đúng cấu trúc 10 cột nguyên bản
+# Hàm xuất đúng 10 cột nguyên bản
 def get_clean_export_df():
     export_df = df.copy()
-    # Đảm bảo đủ các cột gốc
     for col in ORIGINAL_COLUMNS:
         if col not in export_df.columns:
             export_df[col] = ""
@@ -160,7 +181,7 @@ def get_clean_export_df():
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 💾 Xuất dữ liệu")
 clean_csv_bytes = get_clean_export_df().to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig")
-download_filename = f"{Path(target_file).stem}_labeled.csv"
+download_filename = f"{Path(file_to_load).stem}_labeled.csv"
 st.sidebar.download_button(
     label=f"📥 Tải file kết quả (`{download_filename}`)",
     data=clean_csv_bytes,
@@ -169,7 +190,13 @@ st.sidebar.download_button(
     use_container_width=True
 )
 
-# Hướng dẫn chấm điểm trên Sidebar
+# Link trực tiếp cho từng người
+st.sidebar.markdown("---")
+st.sidebar.caption("🔗 **Link truy cập nhanh:**")
+st.sidebar.caption("• [Dành cho Quang Huy](/?user=huy)")
+st.sidebar.caption("• [Dành cho Thu An](/?user=an)")
+
+# Tóm tắt Guideline IEEE SANER 2027
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 📖 Hướng dẫn Chấm điểm (SANER 2027):")
 st.sidebar.markdown("""
@@ -179,7 +206,7 @@ st.sidebar.markdown("""
   *Lưu ý:* Đoạn code bị cắt dở ở cuối nhưng phần nhìn thấy đã đủ bằng chứng thì **vẫn đạt Mức 2**.
 """)
 
-# 4. Hiển thị thông tin mẫu hiện tại
+# 5. Hiển thị nội dung mẫu cần gán nhãn
 current_row = df.iloc[idx]
 pair_id = str(current_row.get('pair_id', f'P{idx+1:04d}'))
 query_id = str(current_row.get('query_id', 'N/A'))
@@ -190,8 +217,7 @@ start_line = current_row.get('start_line', '')
 end_line = current_row.get('end_line', '')
 raw_code = str(current_row.get('raw_code_without_header', '// Không tìm thấy nội dung mã nguồn'))
 
-# Phân tích jd_requirement_text để hiển thị trực quan
-# Format chuẩn: Job Title: <title>. Domain: <domain>. Mandatory Technical Skills: <skills>
+# Bóc tách thông tin JD trực quan từ jd_requirement_text
 parsed_title = query_id
 parsed_domain = ""
 parsed_skills = ""
@@ -220,7 +246,7 @@ with ui_col_code:
     lang = "java" if str(file_path).endswith(".java") else "typescript"
     st.code(raw_code, language=lang, line_numbers=True)
 
-    # Gợi ý từ Gemini AI (nếu có trong gemini_map)
+    # Gợi ý từ Gemini AI (nếu có)
     ai_item = gemini_map.get(pair_id)
     if ai_item:
         ai_lbl = int(ai_item['label'])
@@ -231,7 +257,7 @@ with ui_col_code:
             st.markdown(f"- **Lý do chuyên môn:** *{ai_rs}*")
 
 with ui_col_action:
-    st.write("### ✍️ Đánh giá của bạn:")
+    st.write(f"### ✍️ Đánh giá của {annotator_name}:")
 
     current_val = df.loc[idx, score_col]
     if pd.notna(current_val) and str(current_val).strip() != "":
@@ -246,29 +272,25 @@ with ui_col_action:
 
     # Ô ghi chú
     current_note = str(df.loc[idx, 'notes']) if pd.notna(df.loc[idx, 'notes']) else ""
-    note_input = st.text_input("Ghi chú (nếu phân vân):", value=current_note, key=f"note_{annotator_name}_{idx}")
+    note_input = st.text_input("Ghi chú (nếu phân vân):", value=current_note, key=f"note_{user_key}_{idx}")
 
-    # Hàm lưu nhãn an toàn, không lỗi dtype
+    # Hàm lưu nhãn & chuyển câu tiếp theo
     def save_and_next(val):
-        # Ép kiểu an toàn tuyệt đối
         df.loc[idx, score_col] = int(val)
         df.loc[idx, 'notes'] = str(note_input or "")
 
-        # Xuất ra file đúng 10 cột nguyên bản
+        # Lưu đúng file của người này
         clean_df = get_clean_export_df()
-        clean_df.to_csv(target_file, index=False, encoding="utf-8-sig")
+        clean_df.to_csv(file_to_load, index=False, encoding="utf-8-sig")
 
-        # Đồng bộ sang các file liên quan nếu có
-        for f in candidate_files:
-            p_local = BASE_DIR / f
-            if p_local.exists() and str(p_local.resolve()) != str(Path(target_file).resolve()):
-                try:
-                    clean_df.to_csv(str(p_local), index=False, encoding="utf-8-sig")
-                except Exception:
-                    pass
+        # Đồng bộ sang backup_file nếu có
+        backup_path = BASE_DIR / backup_file
+        if backup_path.exists():
+            clean_df.to_csv(backup_path, index=False, encoding="utf-8-sig")
 
-        if st.session_state.current_idx < total - 1:
-            st.session_state.current_idx += 1
+        # Chuyển sang câu kế tiếp
+        if st.session_state[idx_key] < total - 1:
+            st.session_state[idx_key] += 1
         st.rerun()
 
     if st.button("0️⃣ - Không liên quan", use_container_width=True):
@@ -289,14 +311,14 @@ with ui_col_action:
     st.write("---")
     ui_col_prev, ui_col_next = st.columns(2)
     with ui_col_prev:
-        if st.button("⬅️ Câu trước", use_container_width=True) and st.session_state.current_idx > 0:
+        if st.button("⬅️ Câu trước", use_container_width=True) and st.session_state[idx_key] > 0:
             df.loc[idx, 'notes'] = str(note_input or "")
-            get_clean_export_df().to_csv(target_file, index=False, encoding="utf-8-sig")
-            st.session_state.current_idx -= 1
+            get_clean_export_df().to_csv(file_to_load, index=False, encoding="utf-8-sig")
+            st.session_state[idx_key] -= 1
             st.rerun()
     with ui_col_next:
-        if st.button("Câu sau ➡️", use_container_width=True) and st.session_state.current_idx < total - 1:
+        if st.button("Câu sau ➡️", use_container_width=True) and st.session_state[idx_key] < total - 1:
             df.loc[idx, 'notes'] = str(note_input or "")
-            get_clean_export_df().to_csv(target_file, index=False, encoding="utf-8-sig")
-            st.session_state.current_idx += 1
+            get_clean_export_df().to_csv(file_to_load, index=False, encoding="utf-8-sig")
+            st.session_state[idx_key] += 1
             st.rerun()
