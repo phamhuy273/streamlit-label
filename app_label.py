@@ -155,7 +155,6 @@ if total == 0:
     st.stop()
 
 idx_key = f"current_idx_{user_key}"
-jump_key = f"jump_box_{user_key}"
 
 # Khởi tạo vị trí câu cho người này (tự động tới câu chưa làm đầu tiên)
 if idx_key not in st.session_state:
@@ -186,24 +185,20 @@ if st.sidebar.button("⏭️ Nhảy đến câu chưa làm tiếp theo", use_con
         st.session_state[idx_key] = int(unlabeled[0])
     else:
         st.sidebar.success(f"🎉 {annotator_name} đã hoàn thành tất cả các mẫu!")
-    if jump_key in st.session_state:
-        st.session_state[jump_key] = st.session_state[idx_key] + 1
     st.rerun()
 
-# Ô nhảy nhanh tới số câu cụ thể (dùng callback an toàn)
-def handle_jump():
-    if jump_key in st.session_state:
-        st.session_state[idx_key] = st.session_state[jump_key] - 1
-
-st.sidebar.number_input(
+# Ô nhảy nhanh tới số câu cụ thể (Sử dụng dynamic key sạch để tránh lỗi StreamlitWidgetAlreadyInstantiatedError)
+jump_target = st.sidebar.number_input(
     "Nhảy tới mẫu số:",
     min_value=1,
     max_value=total,
     value=idx + 1,
     step=1,
-    key=jump_key,
-    on_change=handle_jump
+    key=f"jump_val_{user_key}_{idx}"
 )
+if jump_target - 1 != idx:
+    st.session_state[idx_key] = jump_target - 1
+    st.rerun()
 
 # Hàm xuất đúng 10 cột nguyên bản
 def get_clean_export_df():
@@ -335,8 +330,6 @@ with ui_col_action:
         # Chuyển sang câu kế tiếp
         if st.session_state[idx_key] < total - 1:
             st.session_state[idx_key] += 1
-        if jump_key in st.session_state:
-            st.session_state[jump_key] = st.session_state[idx_key] + 1
         st.rerun()
 
     if st.button("0️⃣ - Không liên quan", use_container_width=True):
@@ -362,8 +355,6 @@ with ui_col_action:
             st.session_state[df_key] = df
             safe_save_csv(get_clean_export_df(), file_to_load)
             st.session_state[idx_key] -= 1
-            if jump_key in st.session_state:
-                st.session_state[jump_key] = st.session_state[idx_key] + 1
             st.rerun()
     with ui_col_next:
         if st.button("Câu sau ➡️", use_container_width=True) and st.session_state[idx_key] < total - 1:
@@ -371,6 +362,4 @@ with ui_col_action:
             st.session_state[df_key] = df
             safe_save_csv(get_clean_export_df(), file_to_load)
             st.session_state[idx_key] += 1
-            if jump_key in st.session_state:
-                st.session_state[jump_key] = st.session_state[idx_key] + 1
             st.rerun()
